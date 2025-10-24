@@ -1,16 +1,16 @@
 {
-  "name": "dstat-dashboard",
+  "name": "vercel-dashboard",
   "version": "1.0.0",
-  "description": "Multi-server DSTAT monitoring dashboard",
+  "private": true,
   "scripts": {
-    "dev": "vercel dev",
-    "build": "vercel build",
-    "deploy": "vercel --prod"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
   },
   "dependencies": {
-    "ws": "^8.14.0"
-  },
-  "devDependencies": {
-    "vercel": "^32.0.0"
+    "highcharts": "^11.2.0",
+    "next": "^13.5.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   }
 }
