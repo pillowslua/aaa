@@ -1,0 +1,173 @@
+// ==================== FILE: public/dstat.html ====================
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Layer7 - DSTAT</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        background: #f5f5f5;
+      }
+      body > div {
+        width: 100%;
+      }
+      #chart {
+        width: 85%;
+        margin: auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+      #info {
+        margin-top: 2em;
+        margin-bottom: 1em;
+        text-align: center;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #333;
+      }
+      #stats {
+        width: 85%;
+        margin: 1em auto;
+        display: flex;
+        gap: 15px;
+        justify-content: center;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      .stat {
+        background: white;
+        padding: 15px 25px;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        text-align: center;
+      }
+      .stat-label {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 5px;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+      }
+      .status {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4CAF50;
+        margin-right: 6px;
+      }
+      .status.disconnected {
+        background: #f44336;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h2 id="info">
+        <span id="status" class="status"></span>
+        Capturing requests from <span id="host"></span>
+      </h2>
+      <div id="stats">
+        <div class="stat">
+          <div class="stat-label">Current</div>
+          <div class="stat-value" id="current">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Peak</div>
+          <div class="stat-value" id="peak">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Average</div>
+          <div class="stat-value" id="average">0</div>
+        </div>
+      </div>
+      <div id="chart"></div>
+    </div>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <script>
+      window.onload = () => {
+        let info = document.getElementById("info");
+        let statusEl = document.getElementById("status");
+        let currentEl = document.getElementById("current");
+        let peakEl = document.getElementById("peak");
+        let averageEl = document.getElementById("average");
+        
+        let peak = 0;
+        let history = [];
+        
+        let chart = Highcharts.chart("chart", {
+          exporting: {
+            enabled: true,
+          },
+          chart: {
+            type: "area",
+          },
+          title: {
+            text: "Layer7 DSTAT",
+          },
+          xAxis: {
+            type: "datetime",
+          },
+          yAxis: {
+            title: {
+              text: "",
+            },
+          },
+          series: [
+            {
+              name: "Requests",
+              data: [],
+            },
+          ],
+        });
+        
+        document.getElementById("host").innerText = location.host + "/dstat";
+        
+        let ws = new WebSocket(
+          (location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/"
+        );
+        
+        ws.onopen = () => {
+          statusEl.className = "status";
+        };
+        
+        ws.onclose = () => {
+          statusEl.className = "status disconnected";
+        };
+        
+        ws.onmessage = (event) => {
+          let requests = Number(event.data);
+          let time = new Date().getTime();
+          chart.series[0].addPoint([time, requests], true, chart.series[0].points.length > 60);
+          
+          currentEl.innerText = requests;
+          
+          if (requests > peak) {
+            peak = requests;
+            peakEl.innerText = peak;
+          }
+          
+          history.push(requests);
+          if (history.length > 60) history.shift();
+          
+          let avg = Math.round(history.reduce((a, b) => a + b, 0) / history.length);
+          averageEl.innerText = avg;
+        };
+      };
+    </script>
+  </body>
+</html>
