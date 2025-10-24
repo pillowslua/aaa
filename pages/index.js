@@ -10,7 +10,7 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    const wsUrl = "ws://server1.example.com:20050/"; // đổi thành WS server của bạn
+    const wsUrl = "ws://http://147.135.252.68:20050//"; // đổi thành WS server của bạn
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
