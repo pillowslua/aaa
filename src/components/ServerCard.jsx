@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { Globe, CheckCircle, AlertCircle, Clock, Shield } from 'lucide-react';
 
 const ServerCard = ({ server, isSelected, onClick }) => {
   const getStatusColor = (status) => {
@@ -21,6 +21,8 @@ const ServerCard = ({ server, isSelected, onClick }) => {
       default: return <AlertCircle className="w-5 h-5" />;
     }
   };
+
+  const isHttp = server.url.startsWith('http://');
 
   return (
     <button
@@ -51,7 +53,7 @@ const ServerCard = ({ server, isSelected, onClick }) => {
         </div>
         
         {server.responseTime !== null && (
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center justify-between text-xs mb-2">
             <span className="text-slate-500">Response:</span>
             <span className={`font-mono font-semibold ${
               server.responseTime < 500 ? 'text-green-400' : 
@@ -59,6 +61,13 @@ const ServerCard = ({ server, isSelected, onClick }) => {
             }`}>
               {server.responseTime}ms
             </span>
+          </div>
+        )}
+        
+        {server.method && (
+          <div className="flex items-center gap-1 text-xs">
+            <Shield className="w-3 h-3 text-blue-400" />
+            <span className="text-blue-400">via {server.method}</span>
           </div>
         )}
         
