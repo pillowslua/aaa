@@ -14,6 +14,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'URL parameter is required' });
   }
 
+  console.log(`Checking URL: ${url}`);
   const startTime = Date.now();
 
   try {
@@ -32,6 +33,7 @@ export default async function handler(req, res) {
         }
       });
     } catch (headError) {
+      console.log('HEAD failed, trying GET...');
       // If HEAD fails, try GET
       response = await fetch(url, {
         method: 'GET',
@@ -45,6 +47,8 @@ export default async function handler(req, res) {
 
     clearTimeout(timeoutId);
     const responseTime = Date.now() - startTime;
+
+    console.log(`Success: ${url} - ${response.status} - ${responseTime}ms`);
 
     return res.status(200).json({
       status: response.ok ? 'online' : 'offline',
@@ -60,6 +64,8 @@ export default async function handler(req, res) {
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
+    
+    console.error(`Error checking ${url}:`, error.message);
     
     // Determine error type
     let status = 'offline';
