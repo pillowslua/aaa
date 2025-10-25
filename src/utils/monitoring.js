@@ -1,17 +1,24 @@
+// ============================================
+// FILE 1: src/utils/monitoring.js
+// CHỈ DÙNG API - KHÔNG FETCH/IMAGE
+// ============================================
+
+// Real monitoring functions - ONLY API for HTTP URLs
 export const checkServer = async (server) => {
   const startTime = Date.now();
   
   try {
-    // Check if URL is HTTP and we're on HTTPS (mixed content issue)
+    // Check if URL is HTTP
     const isHttpUrl = server.url.startsWith('http://');
-    const isHttpsPage = window.location.protocol === 'https:';
+    const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
     
-    // If mixed content issue, use API endpoint
+    // ALWAYS use API for HTTP URLs on HTTPS page
     if (isHttpUrl && isHttpsPage) {
+      console.log(`Using API for HTTP URL: ${server.url}`);
       return await checkViaAPI(server, startTime);
     }
     
-    // Otherwise try direct fetch
+    // For HTTPS URLs, try direct fetch first
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     
@@ -30,11 +37,12 @@ export const checkServer = async (server) => {
         ...server,
         status: 'online',
         responseTime: responseTime,
-        lastChecked: new Date().toISOString()
+        lastChecked: new Date().toISOString(),
+        method: 'direct'
       };
     } catch (fetchError) {
       clearTimeout(timeoutId);
-      // Try API as fallback
+      // Fallback to API
       return await checkViaAPI(server, startTime);
     }
     
@@ -45,16 +53,31 @@ export const checkServer = async (server) => {
       status: 'error',
       responseTime: responseTime,
       lastChecked: new Date().toISOString(),
-      error: error.message
+      error: error.message,
+      method: 'error'
     };
   }
 };
 
-// Check via Vercel API endpoint
+// Check via Vercel API endpoint - MAIN METHOD FOR HTTP
 const checkViaAPI = async (server, startTime) => {
   try {
-    const response = await fetch(`/api/check?url=${encodeURIComponent(server.url)}`);
+    const apiUrl = `/api/check?url=${encodeURIComponent(server.url)}`;
+    console.log(`Calling API: ${apiUrl}`);
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+    
     const data = await response.json();
+    console.log(`API Response:`, data);
     
     const responseTime = Date.now() - startTime;
     
@@ -67,64 +90,31 @@ const checkViaAPI = async (server, startTime) => {
       method: 'api'
     };
   } catch (error) {
+    console.error(`API Error for ${server.url}:`, error);
     return {
       ...server,
       status: 'error',
       responseTime: Date.now() - startTime,
       lastChecked: new Date().toISOString(),
-      error: error.message
+      error: error.message,
+      method: 'api-error'
     };
   }
 };
 
-// Fallback: Check via Image loading
-const checkViaImage = (server, startTime) => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const timeout = setTimeout(() => {
-      img.src = '';
-      resolve({
-        ...server,
-        status: 'timeout',
-        responseTime: Date.now() - startTime,
-        lastChecked: new Date().toISOString()
-      });
-    }, 10000);
-
-    img.onload = () => {
-      clearTimeout(timeout);
-      resolve({
-        ...server,
-        status: 'online',
-        responseTime: Date.now() - startTime,
-        lastChecked: new Date().toISOString()
-      });
-    };
-
-    img.onerror = () => {
-      clearTimeout(timeout);
-      const responseTime = Date.now() - startTime;
-      resolve({
-        ...server,
-        status: responseTime < 5000 ? 'online' : 'offline',
-        responseTime: responseTime,
-        lastChecked: new Date().toISOString()
-      });
-    };
-
-    img.src = server.url + '/favicon.ico?' + Date.now();
-  });
-};
-
 export const checkAllServers = async (servers) => {
+  console.log('Checking all servers...');
   const checks = servers.map(server => 
     checkServer(server).catch(error => ({
       ...server,
       status: 'error',
       error: error.message,
-      lastChecked: new Date().toISOString()
+      lastChecked: new Date().toISOString(),
+      method: 'catch-error'
     }))
   );
   
-  return await Promise.all(checks);
+  const results = await Promise.all(checks);
+  console.log('All checks complete:', results);
+  return results;
 };
