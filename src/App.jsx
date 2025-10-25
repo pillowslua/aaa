@@ -1,10 +1,127 @@
+// ============================================
+// GIẢI PHÁP: TẠO PROXY API ĐẢ LOAD HTTP CONTENT
+// ============================================
+
+// FILE 1: api/proxy.js
+// Vercel Serverless Function - Proxy HTTP content
+// ============================================
+
+export default async function handler(req, res) {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const { url } = req.query;
+
+  if (!url) {
+    return res.status(400).send('URL parameter is required');
+  }
+
+  try {
+    console.log(`Proxying: ${url}`);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+
+    // Get content type
+    const contentType = response.headers.get('content-type') || 'text/html';
+    
+    // Set headers
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    res.setHeader('Content-Security-Policy', 'frame-ancestors *');
+    
+    // Get HTML content
+    let html = await response.text();
+    
+    // Rewrite URLs in HTML to use proxy
+    html = html.replace(
+      /(href|src)=["'](?!http|\/\/|#|data:)([^"']+)["']/gi,
+      (match, attr, relativeUrl) => {
+        try {
+          const baseUrl = new URL(url);
+          const absoluteUrl = new URL(relativeUrl, baseUrl.origin).href;
+          return `${attr}="/api/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
+        } catch {
+          return match;
+        }
+      }
+    );
+    
+    // Inject base tag
+    html = html.replace(
+      /<head>/i,
+      `<head><base href="${url}">`
+    );
+
+    return res.status(200).send(html);
+
+  } catch (error) {
+    console.error(`Proxy error for ${url}:`, error);
+    return res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { 
+              font-family: system-ui; 
+              padding: 40px; 
+              background: #1a1a1a; 
+              color: white;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 100vh;
+              margin: 0;
+            }
+            .error-box {
+              background: #2a2a2a;
+              border: 2px solid #ff4444;
+              border-radius: 12px;
+              padding: 30px;
+              max-width: 500px;
+              text-align: center;
+            }
+            h1 { color: #ff4444; margin: 0 0 20px 0; }
+            p { color: #999; line-height: 1.6; }
+            a { color: #4a9eff; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <div class="error-box">
+            <h1>⚠️ Proxy Error</h1>
+            <p><strong>Cannot load:</strong> ${url}</p>
+            <p>Error: ${error.message}</p>
+            <p><a href="${url}" target="_blank">Open directly in new tab →</a></p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+}
+
+
+// ============================================
+// FILE 2: src/App.jsx (UPDATED)
+// Use proxy for HTTP URLs
+// ============================================
+
 import React, { useState, useEffect } from 'react';
 import { Activity, Globe, Server, AlertCircle, CheckCircle, Clock, ExternalLink, Zap, Shield } from 'lucide-react';
 import { checkAllServers } from './utils/monitoring';
 import ServerCard from './components/ServerCard';
 import StatsCard from './components/StatsCard';
 
-// ⚠️ THAY ĐỔI URLs CỦA BẠN Ở ĐÂY
 const SERVER_CONFIG = [
   { id: 1, name: 'Main Server', url: 'http://147.135.252.68:20050/' },
   { id: 2, name: 'Google', url: 'https://google.com' },
@@ -46,8 +163,11 @@ function App() {
     .filter(s => s.responseTime)
     .reduce((acc, s) => acc + s.responseTime, 0) / servers.filter(s => s.responseTime).length || 0;
 
-  // Check if selected server is HTTP
+  // Check if selected server is HTTP - use proxy
   const isHttpUrl = selectedServer?.url.startsWith('http://');
+  const iframeUrl = isHttpUrl 
+    ? `/api/proxy?url=${encodeURIComponent(selectedServer.url)}`
+    : selectedServer?.url;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -112,81 +232,57 @@ function App() {
         {selectedServer && (
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-700 flex items-center justify-between bg-gradient-to-r from-slate-800/50 to-slate-700/50">
-              <div>
+              <div className="flex-1">
                 <h2 className="text-2xl font-bold text-white mb-2">{selectedServer.name}</h2>
-                <div className="flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-4 text-sm flex-wrap">
                   <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1 rounded-lg">
+                    <div className={`w-2 h-2 rounded-full ${
+                      selectedServer.status === 'online' ? 'bg-green-500' : 'bg-red-500'
+                    } animate-pulse`}></div>
                     <span className="text-slate-300 capitalize font-semibold">{selectedServer.status}</span>
                   </div>
-                  {selectedServer.method && (
-                    <div className="flex items-center gap-2 bg-blue-500/10 px-3 py-1 rounded-lg">
-                      <Shield className="w-4 h-4 text-blue-400" />
-                      <span className="text-blue-400 text-xs">via {selectedServer.method}</span>
+                  {selectedServer.responseTime && (
+                    <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1 rounded-lg">
+                      <Zap className="w-4 h-4 text-yellow-400" />
+                      <span className="text-slate-300">{selectedServer.responseTime}ms</span>
+                    </div>
+                  )}
+                  {isHttpUrl && (
+                    <div className="flex items-center gap-2 bg-yellow-500/10 px-3 py-1 rounded-lg border border-yellow-500/30">
+                      <Shield className="w-4 h-4 text-yellow-400" />
+                      <span className="text-yellow-400 text-xs">via Proxy</span>
                     </div>
                   )}
                   <a 
                     href={selectedServer.url} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-blue-400 hover:text-blue-300"
+                    className="flex items-center gap-1 text-blue-400 hover:text-blue-300 bg-blue-500/10 px-3 py-1 rounded-lg hover:bg-blue-500/20 transition-all"
                   >
                     <ExternalLink className="w-4 h-4" />
-                    Visit Site
+                    Open Direct
                   </a>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedServer(null)}
-                className="text-slate-400 hover:text-white text-3xl"
+                className="text-slate-400 hover:text-white text-3xl hover:bg-slate-700/50 w-10 h-10 rounded-lg transition-all ml-4"
               >
                 ×
               </button>
             </div>
             
-            {/* Preview - Show warning for HTTP or iframe for HTTPS */}
-            {isHttpUrl ? (
-              <div className="relative bg-slate-900/50" style={{ height: '600px' }}>
-                <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-                  <Shield className="w-24 h-24 text-yellow-500 mb-6" />
-                  <h3 className="text-2xl font-bold text-white mb-3">HTTP Website Detected</h3>
-                  <p className="text-slate-400 mb-6 max-w-md">
-                    Cannot display HTTP content in preview due to browser security (Mixed Content Policy).
-                    <br/><br/>
-                    Status monitoring is working via API. Click "Visit Site" to open in new tab.
-                  </p>
-                  <div className="flex gap-4">
-                    <a 
-                      href={selectedServer.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold"
-                    >
-                      <ExternalLink className="w-5 h-5" />
-                      Open in New Tab
-                    </a>
-                  </div>
-                  <div className="mt-8 p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                    <div className="text-sm text-slate-400">
-                      <strong className="text-white">Server Status:</strong>
-                      <div className="mt-2 space-y-1">
-                        <div>Status: <span className="text-green-400">{selectedServer.status}</span></div>
-                        <div>Response Time: <span className="text-blue-400">{selectedServer.responseTime}ms</span></div>
-                        <div>Last Check: <span className="text-slate-300">{new Date(selectedServer.lastChecked).toLocaleString()}</span></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="relative bg-white" style={{ height: '600px' }}>
-                <iframe
-                  src={selectedServer.url}
-                  className="w-full h-full"
-                  sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-                  title={selectedServer.name}
-                />
-              </div>
-            )}
+            {/* Iframe Preview - Works for both HTTP and HTTPS via proxy */}
+            <div className="relative bg-white" style={{ height: '600px' }}>
+              <iframe
+                key={iframeUrl}
+                src={iframeUrl}
+                className="w-full h-full"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                title={selectedServer.name}
+              />
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-slate-900/10 to-transparent"></div>
+            </div>
           </div>
         )}
 
@@ -197,6 +293,8 @@ function App() {
             <span className="text-slate-400 text-sm">
               Last checked: <span className="text-white font-semibold">{lastCheck.toLocaleTimeString()}</span>
             </span>
+            <span className="text-slate-600">•</span>
+            <span className="text-slate-400 text-sm">Auto-refresh every 30s</span>
           </div>
         </div>
       </div>
