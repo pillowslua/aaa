@@ -2,6 +2,16 @@ export const checkServer = async (server) => {
   const startTime = Date.now();
   
   try {
+    // Check if URL is HTTP and we're on HTTPS (mixed content issue)
+    const isHttpUrl = server.url.startsWith('http://');
+    const isHttpsPage = window.location.protocol === 'https:';
+    
+    // If mixed content issue, use API endpoint
+    if (isHttpUrl && isHttpsPage) {
+      return await checkViaAPI(server, startTime);
+    }
+    
+    // Otherwise try direct fetch
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     
@@ -24,7 +34,8 @@ export const checkServer = async (server) => {
       };
     } catch (fetchError) {
       clearTimeout(timeoutId);
-      return await checkViaImage(server, startTime);
+      // Try API as fallback
+      return await checkViaAPI(server, startTime);
     }
     
   } catch (error) {
@@ -33,11 +44,40 @@ export const checkServer = async (server) => {
       ...server,
       status: 'error',
       responseTime: responseTime,
-      lastChecked: new Date().toISOString()
+      lastChecked: new Date().toISOString(),
+      error: error.message
     };
   }
 };
 
+// Check via Vercel API endpoint
+const checkViaAPI = async (server, startTime) => {
+  try {
+    const response = await fetch(`/api/check?url=${encodeURIComponent(server.url)}`);
+    const data = await response.json();
+    
+    const responseTime = Date.now() - startTime;
+    
+    return {
+      ...server,
+      status: data.status || 'unknown',
+      responseTime: data.responseTime || responseTime,
+      lastChecked: new Date().toISOString(),
+      statusCode: data.statusCode,
+      method: 'api'
+    };
+  } catch (error) {
+    return {
+      ...server,
+      status: 'error',
+      responseTime: Date.now() - startTime,
+      lastChecked: new Date().toISOString(),
+      error: error.message
+    };
+  }
+};
+
+// Fallback: Check via Image loading
 const checkViaImage = (server, startTime) => {
   return new Promise((resolve) => {
     const img = new Image();
